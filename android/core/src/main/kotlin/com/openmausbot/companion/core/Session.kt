@@ -2100,6 +2100,15 @@ class Session(
             "That pairing code was already used. Start pairing again on your computer and rescan the new QR code."
         const val THREAD_GONE_MESSAGE = "That thread is no longer on your computer."
 
+        /**
+         * The harness's own wording for `requirePinnedClientThread()` (server/index.ts),
+         * matched by prefix rather than in full so a later reword of the trailing sentence
+         * does not silently break the match. A "the bot is busy" send failure is also a 409
+         * but a different message — status alone cannot tell the two apart, so the caller
+         * must match this text, not just the status code.
+         */
+        const val MULTIPLE_THREADS_MESSAGE_PREFIX = "This bot has multiple threads"
+
         /** High-entropy QR token — distinct from a retryable six-digit code. */
         fun isQrCredential(credential: String): Boolean =
             credential.startsWith("omb_pair_") ||
