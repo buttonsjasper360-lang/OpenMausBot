@@ -1063,6 +1063,12 @@ class Session(
     // MARK: - Actions
 
     suspend fun send(text: String, to: Chat) {
+        // Cleared up front, matching the attachment-carrying send() below: without
+        // this, a stale error from an earlier failed send lingers in actionError
+        // after this call succeeds silently, and a caller reading it afterward
+        // (ChatScreen's multiple-threads check) mistakes the old failure for this
+        // call's own result.
+        _actionError.value = null
         perform {
             val receipt = when (to) {
                 is Chat.BotChat -> it.sendToBot(to.bot.id, text, to.threadId)
