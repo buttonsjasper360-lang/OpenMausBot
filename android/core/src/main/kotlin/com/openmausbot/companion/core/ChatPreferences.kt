@@ -18,6 +18,19 @@ enum class ActivityDetail(val wireValue: String, val label: String, val caption:
     }
 }
 
+/** Phone-local override for light/dark, independent of the desktop's named skins. */
+enum class AppearanceMode(val wireValue: String, val label: String) {
+    SYSTEM("system", "System"),
+    LIGHT("light", "Light"),
+    DARK("dark", "Dark"),
+    ;
+
+    companion object {
+        fun fromWire(value: String?): AppearanceMode =
+            entries.firstOrNull { it.wireValue == value } ?: SYSTEM
+    }
+}
+
 /** One user-editable chip on the composer's quick-reply row. */
 @Serializable
 data class QuickReply(

@@ -7,6 +7,7 @@ import com.openmausbot.companion.core.forTask
 import com.openmausbot.companion.ui.bot
 import com.openmausbot.companion.ui.room
 import com.openmausbot.companion.core.ActivityDetail
+import com.openmausbot.companion.core.AppearanceMode
 import com.openmausbot.companion.core.QuickReply
 import kotlin.test.assertEquals
 import org.junit.Test
@@ -31,6 +32,16 @@ class ChatPreferencesTest {
         store(name).setActivityDetail(ActivityDetail.HIDDEN)
 
         assertEquals(ActivityDetail.HIDDEN, store(name).activityDetail.value)
+    }
+
+    @Test
+    fun `appearance mode defaults to system and survives a new preferences instance`() {
+        val name = "chat-appearance-mode"
+        assertEquals(AppearanceMode.SYSTEM, store(name).appearanceMode.value)
+
+        store(name).setAppearanceMode(AppearanceMode.DARK)
+
+        assertEquals(AppearanceMode.DARK, store(name).appearanceMode.value)
     }
 
     @Test

@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import com.openmausbot.companion.core.Chat
 import com.openmausbot.companion.core.forTask
 import com.openmausbot.companion.core.ActivityDetail
+import com.openmausbot.companion.core.AppearanceMode
 import com.openmausbot.companion.core.QuickReply
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,12 +34,23 @@ class ChatPreferences(
     private val _quickReplies = MutableStateFlow(QuickReply.decode(prefs.getString(QUICK_REPLIES, "").orEmpty()))
     val quickReplies: StateFlow<List<QuickReply>> = _quickReplies.asStateFlow()
 
+    private val _appearanceMode = MutableStateFlow(
+        AppearanceMode.fromWire(prefs.getString(APPEARANCE_MODE, null)),
+    )
+    val appearanceMode: StateFlow<AppearanceMode> = _appearanceMode.asStateFlow()
+
     fun setActivityDetail(detail: ActivityDetail) {
         if (_activityDetail.value == detail && prefs.contains(ACTIVITY_DETAIL)) return
         // The value is small and changed only from Settings. Commit makes a
         // selection durable before a process recreation can observe it.
         prefs.edit().putString(ACTIVITY_DETAIL, detail.wireValue).commit()
         _activityDetail.value = detail
+    }
+
+    fun setAppearanceMode(mode: AppearanceMode) {
+        if (_appearanceMode.value == mode && prefs.contains(APPEARANCE_MODE)) return
+        prefs.edit().putString(APPEARANCE_MODE, mode.wireValue).commit()
+        _appearanceMode.value = mode
     }
 
     fun setQuickReplies(replies: List<QuickReply>) {
@@ -82,6 +94,7 @@ class ChatPreferences(
         const val FILE = "$NAME.xml"
         private const val ACTIVITY_DETAIL = "companion.prefs.activityDetail"
         private const val QUICK_REPLIES = "companion.prefs.quickReplies"
+        private const val APPEARANCE_MODE = "companion.prefs.appearanceMode"
 
         private fun threadKey(connectionId: String, botId: String): String =
             "thread.last-opened.${connectionId.length}:$connectionId$botId"

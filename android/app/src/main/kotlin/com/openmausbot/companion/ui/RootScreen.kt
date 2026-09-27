@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -27,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.openmausbot.companion.core.AppearanceMode
 import com.openmausbot.companion.core.Connection
 import com.openmausbot.companion.core.NotificationAuthorizationState
 import com.openmausbot.companion.core.NotificationOnboardingPolicy
@@ -192,7 +194,14 @@ fun CompanionRoot(
         tapCoordinator.onPending(session, target, onPendingTargetConsumed)
     }
 
-    CompanionTheme {
+    val appearanceMode by environment.chatPreferences.appearanceMode.collectAsState()
+    CompanionTheme(
+        darkTheme = when (appearanceMode) {
+            AppearanceMode.SYSTEM -> isSystemInDarkTheme()
+            AppearanceMode.LIGHT -> false
+            AppearanceMode.DARK -> true
+        },
+    ) {
         // One place for system insets: the app draws edge to edge, and every
         // screen wants the same answer — keep content clear of the status bar,
         // the gesture bar, and the keyboard.

@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openmausbot.companion.R
 import com.openmausbot.companion.core.ActivityDetail
+import com.openmausbot.companion.core.AppearanceMode
 import com.openmausbot.companion.core.Connection
 import com.openmausbot.companion.core.Session
 import kotlinx.coroutines.delay
@@ -80,6 +81,7 @@ fun SettingsScreen(
     val status by session.status.collectAsState()
     val notifications by environment.notifications.access.collectAsState()
     val activityDetail by environment.chatPreferences.activityDetail.collectAsState()
+    val appearanceMode by environment.chatPreferences.appearanceMode.collectAsState()
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboard.current
     val haptics = rememberHaptics()
@@ -93,6 +95,7 @@ fun SettingsScreen(
     var confirmingUnpair by remember { mutableStateOf(false) }
     var pendingComputerRemoval by remember { mutableStateOf<Connection?>(null) }
     var choosingActivity by remember { mutableStateOf(false) }
+    var choosingAppearance by remember { mutableStateOf(false) }
     var editingQuickReplies by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -233,6 +236,11 @@ fun SettingsScreen(
                 SettingsButton("Change activity detail") { choosingActivity = true }
                 SettingsButton("Quick replies") { editingQuickReplies = true }
                 Footnote(activityDetail.caption)
+            }
+
+            SettingsSection("Appearance") {
+                SettingsRow("Theme", appearanceMode.label)
+                SettingsButton("Change theme") { choosingAppearance = true }
             }
 
             // Routine schedules live on the computer this phone is bound to.
@@ -408,6 +416,40 @@ fun SettingsScreen(
             },
             confirmButton = {},
             dismissButton = { TextButton(onClick = { choosingActivity = false }) { Text("Cancel") } },
+        )
+    }
+
+    if (choosingAppearance) {
+        AlertDialog(
+            onDismissRequest = { choosingAppearance = false },
+            title = { Text("Theme") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    AppearanceMode.entries.forEach { mode ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = MIN_TOUCH_TARGET)
+                                .selectable(
+                                    selected = mode == appearanceMode,
+                                    role = Role.RadioButton,
+                                    onClick = {
+                                        environment.chatPreferences.setAppearanceMode(mode)
+                                        choosingAppearance = false
+                                    },
+                                )
+                                .padding(vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = mode == appearanceMode, onClick = null)
+                            Text(mode.label, textAlign = TextAlign.Start)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { choosingAppearance = false }) { Text("Cancel") } },
         )
     }
 
