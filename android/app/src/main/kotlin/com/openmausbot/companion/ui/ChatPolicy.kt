@@ -7,6 +7,7 @@ import com.openmausbot.companion.core.ChatSummary
 import com.openmausbot.companion.core.ChatTarget
 import com.openmausbot.companion.core.CompanionState
 import com.openmausbot.companion.core.Message
+import com.openmausbot.companion.core.RoutineRunCard
 import com.openmausbot.companion.core.OptionCard
 import com.openmausbot.companion.core.PendingApproval
 import com.openmausbot.companion.core.Reaction
@@ -478,7 +479,7 @@ object MessageActions {
         // A tool chip is context, a screenshot is pixels, a digest is a log line.
         Message.Kind.ACTIVITY, Message.Kind.SCREEN, Message.Kind.DIGEST -> null
         Message.Kind.COMPACTION -> message.compaction?.summary ?: message.text?.takeIf { it.isNotBlank() }
-        Message.Kind.ROUTINE_RUN -> message.routineRun?.let { it.summary ?: it.error }
+        Message.Kind.ROUTINE_RUN -> message.routineRun?.let(::routineRunDisplayText)
             ?: message.text?.takeIf { it.isNotBlank() }
     }
 
@@ -494,7 +495,29 @@ object MessageActions {
         if (AttachedMessageContent.parse(raw).attachments.isNotEmpty()) return null
         return raw
     }
+
+    /**
+     * Which bot actually owns a routine's execution thread. A Chief can
+     * propose a routine for another bot (#1879), so the reporting chat's own
+     * bot is never assumed to be the execution owner — every bot's task list
+     * is searched for the thread instead. [fallbackBotId] (the reporting
+     * chat's bot) is used only when no bot's task list has caught up with the
+     * execution thread yet, e.g. right after the run starts.
+     */
+    fun resolveExecutionBotId(bots: List<Bot>, executionThreadId: String?, fallbackBotId: String?): String? {
+        if (executionThreadId == null) return fallbackBotId
+        return bots.firstOrNull { candidate -> candidate.tasks?.any { it.threadId == executionThreadId } == true }?.id
+            ?: fallbackBotId
+    }
 }
+
+/**
+ * The one piece of text a routine-run card is "about": the error is the story
+ * on a failed or missed run, the summary otherwise. Copy, the card's detail
+ * line, and its show-more expansion all read this so they never disagree.
+ */
+fun routineRunDisplayText(run: RoutineRunCard): String? =
+    if (run.status == "failed" || run.status == "missed") run.error ?: run.summary else run.summary ?: run.error
 
 /** Reactions, grouped for display. `by == "user"` is yours. */
 data class ReactionGroup(val emoji: String, val count: Int, val mine: Boolean)

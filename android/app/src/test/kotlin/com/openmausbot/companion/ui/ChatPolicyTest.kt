@@ -11,6 +11,7 @@ import com.openmausbot.companion.core.Message
 import com.openmausbot.companion.core.ModelSelection
 import com.openmausbot.companion.core.OptionCard
 import com.openmausbot.companion.core.Reaction
+import com.openmausbot.companion.core.RoutineRunCard
 import com.openmausbot.companion.core.Room
 import com.openmausbot.companion.core.chat
 import com.openmausbot.companion.core.target
@@ -640,6 +641,47 @@ class MessageActionsTest {
     fun `a tool chip and a screenshot offer nothing to copy`() {
         assertNull(MessageActions.copyableText(message(Message.Kind.ACTIVITY, "shell")))
         assertNull(MessageActions.copyableText(message(Message.Kind.SCREEN)))
+    }
+
+    @Test
+    fun `a routine run copies the error it displays, not the buried summary`() {
+        val failed = message(Message.Kind.ROUTINE_RUN).copy(
+            routineRun = RoutineRunCard(
+                runId = "r1", routineId = "rt1", routineName = "Nightly sweep",
+                status = "failed", summary = "stale partial summary", error = "the target bot went offline",
+            ),
+        )
+        assertEquals("the target bot went offline", MessageActions.copyableText(failed))
+
+        val missed = failed.copy(routineRun = failed.routineRun!!.copy(status = "missed"))
+        assertEquals("the target bot went offline", MessageActions.copyableText(missed))
+
+        val completed = failed.copy(routineRun = failed.routineRun!!.copy(status = "completed", error = null, summary = "all done"))
+        assertEquals("all done", MessageActions.copyableText(completed))
+    }
+
+    @Test
+    fun `open run navigates to the bot that owns the execution thread, not the reporting bot`() {
+        val chief = bot(id = "chief")
+        val worker = bot(id = "worker").copy(
+            tasks = listOf(BotTask(threadId = "exec-thread-1", title = "Nightly sweep", createdAt = 0.0)),
+        )
+
+        assertEquals(
+            "worker",
+            MessageActions.resolveExecutionBotId(listOf(chief, worker), "exec-thread-1", fallbackBotId = "chief"),
+        )
+    }
+
+    @Test
+    fun `open run falls back to the reporting bot when no task list has caught up yet`() {
+        val chief = bot(id = "chief")
+
+        assertEquals(
+            "chief",
+            MessageActions.resolveExecutionBotId(listOf(chief), "exec-thread-not-yet-listed", fallbackBotId = "chief"),
+        )
+        assertNull(MessageActions.resolveExecutionBotId(listOf(chief), executionThreadId = null, fallbackBotId = null))
     }
 
     @Test

@@ -85,6 +85,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openmausbot.companion.core.Chat
 import com.openmausbot.companion.core.AttachedMessageContent
+import com.openmausbot.companion.core.Bot
 import com.openmausbot.companion.core.generatedImages
 import com.openmausbot.companion.core.voiceNotes
 import com.openmausbot.companion.core.DisplayedMessageAttachment
@@ -168,6 +169,7 @@ fun MessageRow(
                 message = message,
                 endsRun = endsRun,
                 haptics = haptics,
+                bots = state.bots,
                 openLink = openLink,
                 openAttachment = openAttachment,
                 openThread = openThread,
@@ -408,6 +410,7 @@ private fun MessageContent(
     message: Message,
     endsRun: Boolean,
     haptics: Haptics,
+    bots: List<Bot>,
     openLink: ((String, Message) -> Unit)?,
     openAttachment: ((DisplayedMessageAttachment, Message, DownloadedFile?) -> Unit)?,
     openThread: ((ThreadRef) -> Unit)?,
@@ -443,6 +446,7 @@ private fun MessageContent(
         Message.Kind.ROUTINE_RUN -> RoutineRunReceipt(
             message = message,
             resolvedBotId = (chat as? Chat.BotChat)?.bot?.id ?: message.from?.botId,
+            bots = bots,
             openThread = openThread,
         )
         // A message kind from a newer computer. Almost everything the harness
@@ -1067,6 +1071,7 @@ private fun compactRoutineDetail(value: String?): String {
 private fun RoutineRunReceipt(
     message: Message,
     resolvedBotId: String?,
+    bots: List<Bot>,
     openThread: ((ThreadRef) -> Unit)?,
 ) {
     val run = message.routineRun
@@ -1083,16 +1088,15 @@ private fun RoutineRunReceipt(
         return
     }
     val copy = routineRunStatusCopy(run)
-    val detail = compactRoutineDetail(
-        if (run.status == "failed" || run.status == "missed") run.error ?: run.summary else run.summary ?: run.error,
-    )
-    val showFullReport = run.status == "completed" &&
-        (run.summary?.length ?: 0) > ROUTINE_RUN_DETAIL_LIMIT
+    val fullText = routineRunDisplayText(run)
+    val detail = compactRoutineDetail(fullText)
+    val showFullReport = (fullText?.length ?: 0) > ROUTINE_RUN_DETAIL_LIMIT
     var expanded by remember(message.id) { mutableStateOf(false) }
     val haptics = rememberHaptics()
     val actionLabel = if (run.goalStatus == "needs-input") "Review" else "Open run"
-    val threadRef = run.executionThreadId?.takeIf { resolvedBotId != null }?.let {
-        ThreadRef(botId = resolvedBotId!!, threadId = it, title = run.routineName)
+    val executionBotId = MessageActions.resolveExecutionBotId(bots, run.executionThreadId, resolvedBotId)
+    val threadRef = run.executionThreadId?.takeIf { executionBotId != null }?.let {
+        ThreadRef(botId = executionBotId!!, threadId = it, title = run.routineName)
     }
 
     Column(
@@ -1142,7 +1146,7 @@ private fun RoutineRunReceipt(
             }
             if (expanded) {
                 Text(
-                    text = run.summary.orEmpty(),
+                    text = fullText.orEmpty(),
                     fontSize = 12.sp,
                     color = secondaryTint,
                     modifier = Modifier.padding(top = 4.dp),
