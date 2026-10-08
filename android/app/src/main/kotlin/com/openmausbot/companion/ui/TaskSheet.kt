@@ -474,82 +474,91 @@ private fun TaskRow(
     val canDelete = enabled && TaskRules.canDelete(task, chat)
     val canArchive = enabled && TaskRules.canArchive(task, chat)
 
-    Row(
+    // A phone-width dialog cannot give a readable title and five actions a
+    // sensible share of one horizontal row.  Keep the conversation identity
+    // above its controls: destructive actions then remain adjacent to the
+    // title they affect instead of squeezing it down to a single letter.
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = canSwitch, onClick = onSwitch)
             .padding(horizontal = 20.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        BotThreadRow(task, selected = current, modifier = Modifier.weight(1f), now = now, queued = queued)
+        BotThreadRow(task, selected = current, modifier = Modifier.fillMaxWidth(), now = now, queued = queued)
 
-        val pinLabel = stringResource(
-            if (task.pinned == true) R.string.mobile_a11y_unpin else R.string.mobile_a11y_pin,
-        )
-        Text(
-            text = pinLabel,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            color = if (enabled) secondaryTint else secondaryTint.copy(alpha = 0.4f),
-            modifier = Modifier
-                .clickable(enabled = enabled) { onPin(task) }
-                .localizedSemantics(contentDescription = {
-                    stringResource(R.string.mobile_pinlabel_taskrules_title_task_5545ef6f, pinLabel, TaskRules.title(task))
-                })
-                .padding(horizontal = 8.dp),
-        )
-
-        if (onArchive != null) {
-            val label = stringResource(
-                if (task.isArchived) R.string.mobile_a11y_unarchive else R.string.mobile_a11y_archive,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val pinLabel = stringResource(
+                if (task.pinned == true) R.string.mobile_a11y_unpin else R.string.mobile_a11y_pin,
             )
             Text(
-                text = label,
+                text = pinLabel,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                color = if (canArchive) secondaryTint else secondaryTint.copy(alpha = 0.4f),
+                color = if (enabled) secondaryTint else secondaryTint.copy(alpha = 0.4f),
                 modifier = Modifier
-                    .clickable(enabled = canArchive) { onArchive(task) }
+                    .clickable(enabled = enabled) { onPin(task) }
                     .localizedSemantics(contentDescription = {
-                        stringResource(R.string.mobile_label_taskrules_title_task_48c15f59, label, TaskRules.title(task))
+                        stringResource(R.string.mobile_pinlabel_taskrules_title_task_5545ef6f, pinLabel, TaskRules.title(task))
                     })
                     .padding(horizontal = 8.dp),
             )
-        }
 
-        Icon(
-            imageVector = Icons.Filled.Edit,
-            contentDescription = stringResource(R.string.mobile_rename_taskrules_title_task_054bec52, TaskRules.title(task)),
-            tint = secondaryTint,
-            modifier = Modifier
-                .size(48.dp)
-                .clickable(enabled = enabled && TaskRules.canRename(chat), onClick = onRename)
-                .padding(14.dp),
-        )
+            if (onArchive != null) {
+                val label = stringResource(
+                    if (task.isArchived) R.string.mobile_a11y_unarchive else R.string.mobile_a11y_archive,
+                )
+                Text(
+                    text = label,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (canArchive) secondaryTint else secondaryTint.copy(alpha = 0.4f),
+                    modifier = Modifier
+                        .clickable(enabled = canArchive) { onArchive(task) }
+                        .localizedSemantics(contentDescription = {
+                            stringResource(R.string.mobile_label_taskrules_title_task_48c15f59, label, TaskRules.title(task))
+                        })
+                        .padding(horizontal = 8.dp),
+                )
+            }
 
-        if (onSnooze != null) {
             Icon(
-                imageVector = Icons.Filled.Notifications,
-                contentDescription = "Snooze ${TaskRules.title(task)}",
-                tint = if (enabled && !TaskRules.isWorking(task)) secondaryTint
-                else secondaryTint.copy(alpha = 0.4f),
+                imageVector = Icons.Filled.Edit,
+                contentDescription = stringResource(R.string.mobile_rename_taskrules_title_task_054bec52, TaskRules.title(task)),
+                tint = secondaryTint,
                 modifier = Modifier
                     .size(48.dp)
-                    .clickable(enabled = enabled && !TaskRules.isWorking(task), onClick = onSnooze)
+                    .clickable(enabled = enabled && TaskRules.canRename(chat), onClick = onRename)
+                    .padding(14.dp),
+            )
+
+            if (onSnooze != null) {
+                Icon(
+                    imageVector = Icons.Filled.Notifications,
+                    contentDescription = "Snooze ${TaskRules.title(task)}",
+                    tint = if (enabled && !TaskRules.isWorking(task)) secondaryTint
+                    else secondaryTint.copy(alpha = 0.4f),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clickable(enabled = enabled && !TaskRules.isWorking(task), onClick = onSnooze)
+                        .padding(14.dp),
+                )
+            }
+
+            Icon(
+                imageVector = Icons.Filled.Delete,
+                contentDescription = stringResource(R.string.mobile_delete_taskrules_title_task_961ae881, TaskRules.title(task)),
+                tint = if (canDelete) MaterialTheme.colorScheme.error else secondaryTint.copy(alpha = 0.4f),
+                modifier = Modifier
+                    .size(48.dp)
+                    .clickable(enabled = canDelete, onClick = onDelete)
                     .padding(14.dp),
             )
         }
-
-        Icon(
-            imageVector = Icons.Filled.Delete,
-            contentDescription = stringResource(R.string.mobile_delete_taskrules_title_task_961ae881, TaskRules.title(task)),
-            tint = if (canDelete) MaterialTheme.colorScheme.error else secondaryTint.copy(alpha = 0.4f),
-            modifier = Modifier
-                .size(48.dp)
-                .clickable(enabled = canDelete, onClick = onDelete)
-                .padding(14.dp),
-        )
     }
 }
 
