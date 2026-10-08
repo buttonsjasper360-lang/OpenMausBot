@@ -161,8 +161,9 @@ class AndroidThreadNavigationTest {
         compose.onNodeWithContentDescription("Back").performClick()
         compose.onNodeWithText(fixture.name).performClick()
         compose.onNodeWithContentDescription("Threads").performClick()
-        // The active thread is named in the header and in the selected picker row.
-        compose.onAllNodesWithText("Second thread").assertCountEquals(2)
+        // The selected picker row is the only place the thread title appears;
+        // the compact chat header keeps thread navigation in its toolbar button.
+        compose.onAllNodesWithText("Second thread").assertCountEquals(1)
         assertEquals("first", scene.session.state.value.bot(fixture.id)?.threadId)
         assertTrue(requests.none { it.method == "POST" })
     }

@@ -49,10 +49,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
@@ -99,7 +97,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -1207,19 +1204,18 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedKeyed(
 }
 
 // The strip the top controls sit on, and the air the transcript needs below the
-// name pill before its first row.
+// floating avatar before its first row.
 private val HEADER_BAR = 56.dp
 private val HEADER_SCRIM_FADE = 24.dp
-private val HEADER_CLEARANCE = 128.dp
+private val HEADER_CLEARANCE = 72.dp
 
 /**
  * Back on the left with the rest-of-app unread count, a Live call, thread menu
- * and the bot's computer on the right, and the bot itself between them over
- * its name.
+ * and the bot's computer on the right, and the bot itself between them.
  *
  * The strip behind the two buttons is opaque and then fades out, so the
  * transcript slides under the chrome and disappears rather than stopping at a
- * line. The face and the name pill float below it on their own tiles.
+ * line. The face floats below it, as it does in the official app.
  */
 @Composable
 private fun ChatHeader(
@@ -1294,32 +1290,25 @@ private fun ChatHeader(
             }
         }
 
-        Column(
+        ChatAvatar(
+            chat = chat,
+            size = 60.dp,
+            state = face,
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 2.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            ChatAvatar(
-                chat = chat,
-                size = 60.dp,
-                state = face,
-                modifier = if (chat is Chat.BotChat) {
-                    Modifier
-                        .clickable(role = Role.Button, onClick = onOpenProfile)
-                        .localizedSemantics(contentDescription = {
-                            stringResource(R.string.mobile_a11y_open_chat_settings, chat.name)
-                        })
-                } else {
-                    Modifier
-                },
-            )
-            // A conversation title identifies the chat; it is not the thread
-            // manager. Keep thread management in the top-bar list button so
-            // the title stays a stable profile/details affordance.
-            NamePill(chat = chat, onOpen = onOpenProfile)
-        }
+                .padding(top = 2.dp)
+                .then(
+                    if (chat is Chat.BotChat) {
+                        Modifier
+                            .clickable(role = Role.Button, onClick = onOpenProfile)
+                            .localizedSemantics(contentDescription = {
+                                stringResource(R.string.mobile_a11y_open_chat_settings, chat.name)
+                            })
+                    } else {
+                        Modifier
+                    },
+                ),
+        )
     }
 }
 
@@ -1357,59 +1346,6 @@ private fun BackPill(unreadElsewhere: Int, onBack: () -> Unit) {
                 textAlign = TextAlign.Center,
             )
         }
-    }
-}
-
-/**
- * The bot's name over its job, and the door to its profile — "who this is", as
- * The conversation title opens thread navigation; the avatar opens settings.
- */
-@Composable
-private fun NamePill(chat: Chat, onOpen: () -> Unit) {
-    val hasThreads = chat.supportsTasks
-    Row(
-        modifier = Modifier
-            .chromeCapsule()
-            .clip(CircleShape)
-            .heightIn(min = MIN_TOUCH_TARGET)
-            .clickable(
-                role = Role.Button,
-                onClickLabel = if (hasThreads) {
-                    "Switch thread"
-                } else {
-                    "Open ${chat.name} chat options"
-                },
-                onClick = onOpen,
-            )
-            .padding(start = 14.dp, end = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = chat.name,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        val subtitle = if (hasThreads) chat.threadTitle else chat.subtitle
-        if (subtitle.isNotEmpty()) {
-            Text(
-                text = subtitle,
-                fontSize = 13.sp,
-                color = secondaryTint,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-        }
-        Icon(
-            imageVector = if (hasThreads) Icons.Filled.ArrowDropDown else Icons.Filled.MoreVert,
-            contentDescription = null,
-            tint = secondaryTint,
-            modifier = Modifier.size(16.dp),
-        )
     }
 }
 
