@@ -8,6 +8,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
@@ -122,12 +123,12 @@ class AndroidThreadNavigationTest {
         }
 
         compose.onNode(hasSetTextAction()).performTextInput("Draft for the first thread")
-        compose.onNodeWithText("First thread").performClick()
+        compose.onNodeWithContentDescription("Threads").performClick()
         compose.onNodeWithText("Second thread").performClick()
         compose.waitUntil(5_000) { (navigator.current as? Destination.Chat)?.target?.threadId == "second" }
         compose.onNode(hasSetTextAction()).assertTextEquals("")
         compose.onNode(hasSetTextAction()).performTextInput("Draft for the second thread")
-        compose.onNodeWithText("Second thread").performClick()
+        compose.onNodeWithContentDescription("Threads").performClick()
         compose.onNodeWithText("First thread").performClick()
         compose.waitUntil(5_000) { (navigator.current as? Destination.Chat)?.target?.threadId == "first" }
         compose.onNode(hasSetTextAction()).assertTextEquals("Draft for the first thread")
@@ -154,12 +155,14 @@ class AndroidThreadNavigationTest {
             }
         }
         compose.onNodeWithText(fixture.name).performClick()
-        compose.onNodeWithText("First thread").performClick()
+        compose.onNodeWithContentDescription("Threads").performClick()
         compose.onNodeWithText("Second thread").performClick()
         compose.waitUntil(5_000) { (navigator.current as? Destination.Chat)?.target?.threadId == "second" }
         compose.onNodeWithContentDescription("Back").performClick()
         compose.onNodeWithText(fixture.name).performClick()
-        compose.onNodeWithText("Second thread").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Threads").performClick()
+        // The active thread is named in the header and in the selected picker row.
+        compose.onAllNodesWithText("Second thread").assertCountEquals(2)
         assertEquals("first", scene.session.state.value.bot(fixture.id)?.threadId)
         assertTrue(requests.none { it.method == "POST" })
     }

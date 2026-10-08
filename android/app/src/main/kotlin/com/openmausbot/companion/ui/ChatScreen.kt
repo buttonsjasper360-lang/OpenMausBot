@@ -1213,8 +1213,9 @@ private val HEADER_SCRIM_FADE = 24.dp
 private val HEADER_CLEARANCE = 128.dp
 
 /**
- * Back on the left with the rest-of-app unread count, a Live call and the bot's
- * computer on the right, and the bot itself between them over its name.
+ * Back on the left with the rest-of-app unread count, a Live call, thread menu
+ * and the bot's computer on the right, and the bot itself between them over
+ * its name.
  *
  * The strip behind the two buttons is opaque and then fades out, so the
  * transcript slides under the chrome and disappears rather than stopping at a
@@ -1273,12 +1274,22 @@ private fun ChatHeader(
                     )
                     Spacer(Modifier.width(8.dp))
                 }
+            }
+            if (chat.supportsTasks) {
+                ChromeButton(
+                    icon = Icons.AutoMirrored.Filled.List,
+                    contentDescription = stringResource(R.string.mobile_threads_bb12e8aa),
+                    onClick = onOpenThreads,
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+            if (chat is Chat.BotChat) {
                 ChromeButton(
                     painter = painterResource(R.drawable.ic_display),
                     contentDescription = stringResource(R.string.mobile_watch_chat_name_s_computer_92efc119, chat.name),
                     onClick = onWatchComputer,
                 )
-            } else {
+            } else if (!chat.supportsTasks) {
                 Spacer(Modifier.size(MIN_TOUCH_TARGET))
             }
         }
@@ -1304,7 +1315,10 @@ private fun ChatHeader(
                     Modifier
                 },
             )
-            NamePill(chat = chat, onOpen = if (chat.supportsTasks) onOpenThreads else onOpenProfile)
+            // A conversation title identifies the chat; it is not the thread
+            // manager. Keep thread management in the top-bar list button so
+            // the title stays a stable profile/details affordance.
+            NamePill(chat = chat, onOpen = onOpenProfile)
         }
     }
 }
