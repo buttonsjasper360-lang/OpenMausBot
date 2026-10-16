@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ensureDirs, NATIVE_DIR } from "../../config.ts";
 import type { ProviderInstance } from "../../contracts.ts";
 import { recordEvents, type EventRecorder } from "../../testing/events.ts";
-import { createAcpDriver, skipSubscriptionAuthForLocalInject, type AcpSupport } from "./core.ts";
+import { createAcpDriver, skipSubscriptionAuthForLocalInject, systemForAcpPrompt, type AcpSupport } from "./core.ts";
 import { GrokAgentDriver, grokAcceptsUnadvertisedImages } from "./grok.ts";
 import { GeminiAgentDriver } from "./gemini.ts";
 import { KimiAgentDriver } from "./kimi.ts";
@@ -190,6 +190,53 @@ describe("ACP decodeConfig", () => {
       }),
     ).rejects.toThrow(/interactive provider approvals/);
     await fullAuto.dispose();
+  });
+});
+
+describe("systemForAcpPrompt", () => {
+  const turn = { system: "STABLE MEMORY", systemStable: "STABLE", systemVolatile: " MEMORY" };
+
+  it("sends the full prompt to a new session", () => {
+    expect(systemForAcpPrompt(turn, false, undefined)).toEqual({
+      system: "STABLE MEMORY",
+      sent: { stable: "STABLE", volatile: " MEMORY", turns: 0 },
+    });
+  });
+
+  it("sends nothing again to a resumed session that already holds it", () => {
+    const first = systemForAcpPrompt(turn, false, undefined).sent;
+    expect(systemForAcpPrompt(turn, true, first)).toEqual({
+      system: undefined,
+      sent: { stable: "STABLE", volatile: " MEMORY", turns: 1 },
+    });
+  });
+
+  it("sends only a changed volatile half", () => {
+    const first = systemForAcpPrompt(turn, false, undefined).sent;
+    const next = { ...turn, system: "STABLE NEW MEMORY", systemVolatile: " NEW MEMORY" };
+    expect(systemForAcpPrompt(next, true, first).system).toBe("NEW MEMORY");
+  });
+
+  it("re-sends in full when the stable half changes, on refresh, after a restart, and periodically", () => {
+    const first = systemForAcpPrompt(turn, false, undefined).sent!;
+    expect(systemForAcpPrompt({ ...turn, system: "OTHER MEMORY", systemStable: "OTHER" }, true, first).system).toBe("OTHER MEMORY");
+    expect(systemForAcpPrompt({ ...turn, refreshSystemPrompt: true }, true, first).system).toBe("STABLE MEMORY");
+    expect(systemForAcpPrompt(turn, true, undefined).system).toBe("STABLE MEMORY");
+    expect(systemForAcpPrompt(turn, true, { ...first, turns: 6 }, 8).system).toBeUndefined();
+    expect(systemForAcpPrompt(turn, true, { ...first, turns: 7 }, 8)).toEqual({
+      system: "STABLE MEMORY",
+      sent: { stable: "STABLE", volatile: " MEMORY", turns: 0 },
+    });
+  });
+
+  it("treats an unsplit prompt as all stable", () => {
+    const first = systemForAcpPrompt({ system: "WHOLE" }, false, undefined).sent;
+    expect(systemForAcpPrompt({ system: "WHOLE" }, true, first).system).toBeUndefined();
+    expect(systemForAcpPrompt({ system: "CHANGED" }, true, first).system).toBe("CHANGED");
+  });
+
+  it("leaves a turn without a system prompt alone", () => {
+    expect(systemForAcpPrompt({}, true, undefined)).toEqual({ system: undefined, sent: undefined });
   });
 });
 
@@ -975,6 +1022,27 @@ describe("ACP turns (fake CLI)", () => {
     expect(started).toMatchObject({ sessionId: "resumed-thread-1", model: "m-two" });
     const done = await recorder.until((e) => e.type === "turn.completed");
     expect(done).toMatchObject({ ok: true });
+  });
+
+  it("does not resend an unchanged system prompt to a resumed session", async () => {
+    const dump = join(scratch, "resume-system.json");
+    process.env.FAKE_ACP_DUMP = dump;
+    process.env.FAKE_ACP_DUMP_PROMPT = "1";
+    await create(GrokAgentDriver);
+    const system = "You are Qwen. SOUL-TEXT";
+    const promptText = () => JSON.parse(readFileSync(`${dump}.prompt.json`, "utf8"))[0].text as string;
+
+    const first = await instance.adapter.sendTurn({ threadId: "t-resume-system", text: "one", system });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
+    expect(promptText()).toBe(`${system}\n\none`);
+
+    const second = await instance.adapter.sendTurn({ threadId: "t-resume-system", text: "two", system, resumeCursor: "fake-acp-session" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    expect(promptText()).toBe("two");
+
+    const third = await instance.adapter.sendTurn({ threadId: "t-resume-system", text: "three", system: `${system} EDITED`, resumeCursor: "fake-acp-session" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === third.turnId);
+    expect(promptText()).toBe(`${system} EDITED\n\nthree`);
   });
 
   it("reuses a resume cursor when session/load returns a session", async () => {

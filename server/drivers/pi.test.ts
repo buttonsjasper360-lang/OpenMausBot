@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ensureDirs, NATIVE_DIR } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
-import { encodeInjectId, localHost } from "./local-inject.ts";
+import { encodeInjectId, localHost, refreshContextWindow } from "./local-inject.ts";
 import {
   applyPiLocalCatalog,
   buildMcpServers,
@@ -715,6 +715,24 @@ describe("ensurePiInjectModel", () => {
     };
     expect(written.providers.unsloth.apiKey).toBe("unsloth-secret");
     expect(written.providers.unsloth.baseUrl).toBe(localHost("unsloth")!.baseUrl);
+  });
+
+  it("sizes pi's window to the loaded one so it compacts before the host refuses", async () => {
+    const home = mkdtempSync(join(tmpdir(), "omb-pi-window-"));
+    const fetchWindow = (n: number) => (async () => new Response(JSON.stringify({
+      data: [{ id: "qwen-pi", state: "loaded", loaded_context_length: n }],
+    }))) as unknown as typeof fetch;
+    const read = () => (JSON.parse(readFileSync(join(home, ".pi", "agent", "models.json"), "utf8")) as {
+      providers: { lmstudio: { models: Array<{ id: string; contextWindow: number; maxTokens: number }> } };
+    }).providers.lmstudio.models.find((m) => m.id === "qwen-pi");
+
+    await refreshContextWindow("lmstudio::qwen-pi", {}, fetchWindow(32768));
+    ensurePiInjectModel("lmstudio::qwen-pi", { HOME: home });
+    expect(read()).toMatchObject({ contextWindow: 32768, maxTokens: 8192 });
+
+    await refreshContextWindow("lmstudio::qwen-pi", {}, fetchWindow(65536));
+    ensurePiInjectModel("lmstudio::qwen-pi", { HOME: home });
+    expect(read()).toMatchObject({ contextWindow: 65536, maxTokens: 8192 });
   });
 
   it("leaves official slugs and the models.json file untouched", () => {

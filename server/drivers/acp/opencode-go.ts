@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { decodeInjectId, hostApiKey, localHost, mergeLocalInject } from "../local-inject.ts";
+import { decodeInjectId, hostApiKey, knownContextWindow, localHost, mergeLocalInject } from "../local-inject.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
 import type { ModelCatalog, ProviderErrorCode } from "../../contracts.ts";
 import { execCli } from "../../procs.ts";
@@ -241,6 +241,17 @@ export function ensureOpenCodeInjectModel(
       : {};
   if (!models[inject.model]) {
     models[inject.model] = { name: `${inject.model} (${host.label})` };
+  }
+  // Without limit.context OpenCode never compacts a local model's session, so
+  // a thread grows until the host refuses it. Size it to the loaded window.
+  const window = knownContextWindow(modelId);
+  const entry = models[inject.model];
+  if (window && entry && typeof entry === "object" && !Array.isArray(entry)) {
+    const limit = (entry as Record<string, unknown>).limit;
+    const current = limit && typeof limit === "object" && !Array.isArray(limit) ? (limit as Record<string, unknown>).context : undefined;
+    if (current !== window) {
+      models[inject.model] = { ...entry, limit: { context: window, output: Math.min(8192, Math.floor(window / 4)) } };
+    }
   }
   providers[inject.host] = {
     ...existing,

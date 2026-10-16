@@ -18,7 +18,7 @@ import { lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promi
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
 import { PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../../config.ts";
-import { decodeInjectId } from "../local-inject.ts";
+import { decodeInjectId, refreshContextWindow } from "../local-inject.ts";
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
 
 /**
@@ -184,6 +184,11 @@ const SESSION_CONFIG_TIMEOUT = envOr("OPENMAUS_ACP_SESSION_CONFIG_TIMEOUT_MS", 3
 const NEW_SESSION_TIMEOUT = envOr("OPENMAUS_ACP_NEW_SESSION_TIMEOUT_MS", 300_000);
 const LOAD_SESSION_TIMEOUT = envOr("OPENMAUS_ACP_LOAD_SESSION_TIMEOUT_MS", 120_000); // history replay on a long thread is slow
 const CLIENT_FILE_MAX_BYTES = 8 * 1024 * 1024;
+// Turns between full re-sends of the system prompt on a resumed session. The
+// prompt already sits in that session's history (every ACP harness here gets
+// it inside the first user message), so it is sent again only when it changed
+// or this many turns have passed, in case the agent compacted it away.
+const SYSTEM_RESEND_EVERY = Math.max(1, envOr("OPENMAUS_ACP_SYSTEM_RESEND_EVERY", 8));
 const TOOL_LOG_TEXT_LIMIT = 64_000;
 
 async function readAcpImageBlocks(images: readonly TurnImageInput[]) {
@@ -265,6 +270,45 @@ function sessionOperationKey(toolCall: any): string | null {
   }));
 }
 
+/** What a resumed ACP session was last given of the system prompt. */
+export type SentSystemPrompt = { stable: string; volatile: string; turns: number };
+
+/** The system text to put in front of this turn's prompt, and what the
+ * session will hold once it is sent.
+ *
+ * ACP has no system-prompt channel, so the prompt rides in the user message
+ * and stays in the session's history. Prepending it to every turn of a
+ * resumed session made each message carry the whole prompt again (identity,
+ * SOUL.md, memory, skills, team), so a thread grew by several thousand tokens
+ * per turn and overflowed small local models within a few messages. A
+ * resumed session now gets the full prompt only when its stable half changed,
+ * a refresh was asked for, or SYSTEM_RESEND_EVERY turns have passed; a
+ * changed volatile half (memory, mentions) is sent on its own. */
+export function systemForAcpPrompt(
+  turn: Pick<SendTurnInput, "system" | "systemStable" | "systemVolatile" | "refreshSystemPrompt">,
+  resumed: boolean,
+  previous: SentSystemPrompt | undefined,
+  resendEvery = SYSTEM_RESEND_EVERY,
+): { system: string | undefined; sent: SentSystemPrompt | undefined } {
+  const full = turn.system ?? "";
+  if (!full) return { system: turn.system, sent: undefined };
+  const split = turn.systemStable !== undefined;
+  const stable = split ? turn.systemStable! : full;
+  const volatile = split ? turn.systemVolatile ?? "" : "";
+  if (
+    !resumed
+    || !previous
+    || turn.refreshSystemPrompt
+    || previous.stable !== stable
+    || previous.turns + 1 >= resendEvery
+  ) {
+    return { system: full, sent: { stable, volatile, turns: 0 } };
+  }
+  const sent = { stable, volatile, turns: previous.turns + 1 };
+  if (volatile && volatile !== previous.volatile) return { system: volatile.trim(), sent };
+  return { system: undefined, sent };
+}
+
 export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> {
   const DRIVER_KIND = support.driverKind;
   const SOURCE = support.nativeSource;
@@ -330,6 +374,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       // as the native session lasts. A generic title with no input identifies
       // nothing and is never remembered.
       const sessionAllows = new Map<string, Set<string>>();
+      // native session id → the system prompt that session already holds
+      const sentSystem = new Map<string, SentSystemPrompt>();
 
       const emit = (event: RuntimeEvent) => {
         for (const listener of listeners) listener(event);
@@ -458,6 +504,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "auth_required", cost: null });
           return { turnId };
         }
+        if (support.resolveTurnModel) await refreshContextWindow(turn.model, env);
         const resolvedModel = support.resolveTurnModel?.(turn.model, env);
         support.applyTurnEnv?.(env, { model: resolvedModel, requestedModel: turn.model });
         const cliTurn =
@@ -983,11 +1030,14 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             }
             emitSessionStarted();
             state.promptSent = true;
+            const resumed = Boolean(cursor) && sessionId === cursor;
+            const systemPlan = systemForAcpPrompt(turn, resumed, sentSystem.get(sessionId));
+            const promptTurn = systemPlan.system === turn.system ? turn : { ...turn, system: systemPlan.system };
             const text = support.buildPromptText
-              ? support.buildPromptText(turn)
-              : turn.system
-                ? `${turn.system}\n\n${turn.text}`
-                : turn.text;
+              ? support.buildPromptText(promptTurn)
+              : promptTurn.system
+                ? `${promptTurn.system}\n\n${promptTurn.text}`
+                : promptTurn.text;
             const imageBlocks = support.images === true && runtimeAcceptsImages
               ? await readAcpImageBlocks(images)
               : [];
@@ -995,6 +1045,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               sessionId,
               prompt: [{ type: "text", text }, ...imageBlocks],
             });
+            // Recorded only once the agent took the prompt: a failed send leaves
+            // the session without it, so the next turn sends it in full again.
+            if (systemPlan.sent) sentSystem.set(sessionId, systemPlan.sent);
+            else sentSystem.delete(sessionId);
             // opencode 1.18.18 reports usage at the result root; grok and
             // gemini put it under _meta. Read both rather than lose the count.
             const usage = result?.usage ?? result?._meta ?? {};

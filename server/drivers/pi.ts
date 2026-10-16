@@ -47,8 +47,10 @@ import {
   decodeInjectId,
   encodeInjectId,
   hostApiKey,
+  knownContextWindow,
   localHost,
   mergeLocalInject,
+  refreshContextWindow,
 } from "./local-inject.ts";
 import { appendNative } from "./native.ts";
 
@@ -270,15 +272,22 @@ export function ensurePiInjectModel(
         (row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && !Array.isArray(row),
       )
     : [];
-  if (!models.some((row) => row.id === inject.model)) {
+  const window = knownContextWindow(modelId);
+  const row = models.find((model) => model.id === inject.model);
+  if (!row) {
     models.push({
       id: inject.model,
       name: inject.model,
       reasoning: true,
       input: ["text"],
-      contextWindow: 131072,
-      maxTokens: 16384,
+      contextWindow: window ?? 131072,
+      maxTokens: window ? Math.min(16384, Math.floor(window / 4)) : 16384,
     });
+  } else if (window && row.contextWindow !== window) {
+    // pi compacts against contextWindow; a guess above the loaded window
+    // means it never compacts before the host refuses the request.
+    row.contextWindow = window;
+    row.maxTokens = Math.min(typeof row.maxTokens === "number" ? row.maxTokens : 16384, Math.floor(window / 4));
   }
   existing.models = models;
   providers[inject.host] = existing;
@@ -500,6 +509,11 @@ export const PiDriver: ProviderDriver<PiConfig> = {
 
     const sendTurn = async (turn: SendTurnInput) => {
       const { threadId } = turn;
+      // Before the busy check: nothing between that check and active.set
+      // below may await, or two sends to one thread could both get through.
+      if (typeof turn.model === "string" && turn.model) {
+        await refreshContextWindow(turn.model, { ...process.env, ...input.environment });
+      }
       if (active.has(threadId)) throw new Error("a turn is already running on this thread");
       // Per-bot Ask/Auto is authoritative for harness turns. Preserve the
       // legacy instance flag only for direct adapter callers that omit it.
