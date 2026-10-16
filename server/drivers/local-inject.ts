@@ -35,13 +35,32 @@ export interface InjectedModel {
   model: string;
   label: string;
   loaded?: boolean;
-  /** the host's context window (Ollama reports it for running models in /api/ps) */
+  /** the host's context window (Ollama reports it for running models in /api/ps, LM Studio in /api/v0/models) */
   contextWindow?: number;
 }
 
+/** Loaded windows by model id. Ollama's /api/ps gives `models[].context_length`. LM Studio's /api/v0/models
+ * gives `data[].loaded_context_length` (newer builds also `loaded_instances[].config.context_length`); its
+ * `max_context_length` is what the model could take, not what it was loaded with, so it is never read. */
 export function contextWindowsFromPs(extra: unknown): Map<string, number> {
   const out = new Map<string, number>();
-  const rec = extra && typeof extra === "object" ? (extra as { models?: unknown }) : null;
+  const rec = extra && typeof extra === "object" ? (extra as { models?: unknown; data?: unknown }) : null;
+  if (rec && Array.isArray(rec.data)) {
+    for (const row of rec.data) {
+      if (!row || typeof row !== "object") continue;
+      const item = row as { id?: unknown; loaded_context_length?: unknown; loaded_instances?: unknown };
+      if (typeof item.id !== "string") continue;
+      const sizes: unknown[] = [item.loaded_context_length];
+      if (Array.isArray(item.loaded_instances)) {
+        for (const loaded of item.loaded_instances) {
+          const config = loaded && typeof loaded === "object" ? (loaded as { config?: unknown }).config : null;
+          if (config && typeof config === "object") sizes.push((config as { context_length?: unknown }).context_length);
+        }
+      }
+      const windows = sizes.filter((n): n is number => typeof n === "number" && Number.isFinite(n) && n > 0);
+      if (windows.length) out.set(item.id, Math.min(...windows));
+    }
+  }
   if (!rec || !Array.isArray(rec.models)) return out;
   for (const m of rec.models) {
     if (!m || typeof m !== "object") continue;
@@ -56,6 +75,31 @@ export function contextWindowsFromPs(extra: unknown): Map<string, number> {
     }
   }
   return out;
+}
+
+/** The last loaded window each local host reported, by inject id. A small local window is the one that
+ * matters: compaction sized to a guessed 128k never runs before a 32k host refuses the request. */
+const knownWindows = new Map<string, number>();
+
+export function knownContextWindow(modelId: string | null | undefined): number | undefined {
+  return modelId ? knownWindows.get(modelId) : undefined;
+}
+
+/** Re-read the picked local model's loaded window before a turn: it may have been reloaded with another
+ * context length since the catalog was probed. Bounded and silent; an unanswered probe keeps what was known. */
+export async function refreshContextWindow(
+  modelId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+  fetchImpl: typeof fetch = fetch,
+): Promise<number | undefined> {
+  const inject = decodeInjectId(modelId);
+  if (!inject) return undefined;
+  const host = localHost(inject.host);
+  const url = host && loadedProbeUrl(host);
+  if (!host || !url) return knownWindows.get(modelId!);
+  const window = contextWindowsFromPs(await timedJson(url, env, host, fetchImpl)).get(inject.model);
+  if (window) knownWindows.set(modelId!, window);
+  return knownWindows.get(modelId!);
 }
 
 export function encodeInjectId(host: string, model: string): string {
@@ -317,6 +361,7 @@ export async function probeLocalInjects(
   for (const { host, ids, loaded, windows } of pages) {
     for (const model of ids) {
       const contextWindow = windows.get(model);
+      if (contextWindow) knownWindows.set(encodeInjectId(host.id, model), contextWindow);
       found.push({
         id: encodeInjectId(host.id, model),
         host: host.id,
