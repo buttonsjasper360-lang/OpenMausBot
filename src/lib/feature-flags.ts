@@ -1,7 +1,7 @@
 import { t } from "./i18n";
 
 export interface FeatureFlagConfig {
-  features?: { skillAuthoring?: boolean; skillReview?: boolean; skillReviewSteps?: number; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; claudeUserSkills?: boolean; routinesInConversation?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; shareLearnedSkills?: "off" | "ask" | "auto"; roomMemoryCapture?: boolean };
+  features?: { skillAuthoring?: boolean; skillReview?: boolean; skillReviewSteps?: number; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; claudeUserSkills?: boolean; routinesInConversation?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; shareLearnedSkills?: "off" | "ask" | "auto"; roomMemoryCapture?: boolean; agentsToolBridge?: boolean };
   browserEngine?: { kind: "engine" | "unavailable"; reason?: string; installable?: boolean; installing?: boolean; installError?: string };
 }
 
@@ -91,4 +91,9 @@ export function shareLearnedSkillsMode(config: FeatureFlagConfig | null | undefi
 
 export function roomMemoryCaptureEnabled(config: FeatureFlagConfig | null | undefined): boolean {
   return config?.features?.roomMemoryCapture === true;
+}
+
+/** The agents tool bridge: bots get a short tool list plus find_tool and use_tool. Off unless true. */
+export function agentsToolBridgeEnabled(config: FeatureFlagConfig | null | undefined): boolean {
+  return config?.features?.agentsToolBridge === true;
 }
