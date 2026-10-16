@@ -8,7 +8,7 @@ import { ATTACHMENTS_DIR } from "../../attachments.ts";
 import { cloudHomeConfigured } from "../../cloud-home.ts";
 import { DATA_DIR, OPENCODE_PROVIDER_ENV } from "../../config.ts";
 import { hostedWorkspaceConfigured } from "../../enterprise.ts";
-import { decodeInjectId, hostApiKey, localHost, mergeLocalInject } from "../local-inject.ts";
+import { decodeInjectId, hostApiKey, knownContextWindow, localHost, mergeLocalInject } from "../local-inject.ts";
 import { createAcpDriver, offeredModels, type AccountErrorCode, type AcpSupport } from "./core.ts";
 import type { ModelCatalog, ProviderErrorCode } from "../../contracts.ts";
 import { titleCaseModelId } from "../../contracts.ts";
@@ -489,6 +489,17 @@ export function ensureOpenCodeInjectModel(
       : {};
   if (!models[inject.model]) {
     models[inject.model] = { name: `${inject.model} (${host.label})` };
+  }
+  // Without limit.context OpenCode never compacts a custom model's session, so a local thread grows
+  // until the host refuses it. Size it to the window the host reports loaded.
+  const window = knownContextWindow(modelId);
+  const entry = models[inject.model];
+  if (window && entry && typeof entry === "object" && !Array.isArray(entry)) {
+    const limit = (entry as Record<string, unknown>).limit;
+    const current = limit && typeof limit === "object" && !Array.isArray(limit) ? (limit as Record<string, unknown>).context : undefined;
+    if (current !== window) {
+      models[inject.model] = { ...entry, limit: { context: window, output: Math.min(8192, Math.floor(window / 4)) } };
+    }
   }
   providers[inject.host] = {
     ...existing,

@@ -1,4 +1,5 @@
 import type { ModelCatalog } from "./contracts.ts";
+import { knownContextWindow } from "./drivers/local-inject.ts";
 import { modelContextWindow } from "./model-context-window.ts";
 
 export const DEFAULT_CONTEXT_WINDOW = 128_000;
@@ -6,6 +7,10 @@ const positive = (n: number | null | undefined): n is number => typeof n === "nu
 
 export function contextWindowFor(model: string | undefined, catalog?: ModelCatalog, reported?: number): number {
   if (positive(reported)) return reported;
+  // The host's latest reading first: a local model reloaded with another context length since the
+  // catalog was probed would otherwise be compacted for the old window.
+  const loaded = knownContextWindow(model);
+  if (positive(loaded)) return loaded;
   const declared = catalog?.options.find((option) => option.id === model)?.contextWindow;
   if (positive(declared)) return declared;
   const inferred = model ? modelContextWindow(model) : undefined;

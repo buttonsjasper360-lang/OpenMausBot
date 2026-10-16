@@ -22,7 +22,9 @@ import {
   contextWindowsFromPs,
   loadedIdsFromPayloads,
   LOCAL_HOSTS,
+  knownContextWindow,
   mergeLocalInject,
+  refreshContextWindow,
   resolveInjectId,
 } from "./local-inject.ts";
 
@@ -64,6 +66,19 @@ describe("contextWindowsFromPs", () => {
     expect(windows.get("llama3.2")).toBe(8192);
     expect(windows.has("no-ctx:1b")).toBe(false);
     expect(windows.has("bad:1b")).toBe(false);
+  });
+  it("reads LM Studio's loaded window, not the model's maximum", () => {
+    const windows = contextWindowsFromPs({
+      object: "list",
+      data: [
+        { id: "qwen3.6-35b-a3b", state: "loaded", max_context_length: 262144, loaded_context_length: 32768 },
+        { id: "v1-shape", state: "loaded", loaded_instances: [{ config: { context_length: 16384 } }] },
+        { id: "not-loaded", state: "not-loaded", max_context_length: 131072 },
+      ],
+    });
+    expect(windows.get("qwen3.6-35b-a3b")).toBe(32768);
+    expect(windows.get("v1-shape")).toBe(16384);
+    expect(windows.has("not-loaded")).toBe(false);
   });
   it("tolerates payloads that are not a ps listing", () => {
     expect(contextWindowsFromPs(null).size).toBe(0);
@@ -856,7 +871,59 @@ describe("applyDroidLocalAuthEnv", () => {
   });
 });
 
+describe("refreshContextWindow", () => {
+  const lmStudio = (loaded: number) => (async () => new Response(JSON.stringify({
+    data: [{ id: "qwen-local", state: "loaded", max_context_length: 262144, loaded_context_length: loaded }],
+  }))) as unknown as typeof fetch;
+
+  it("asks the picked model's host and remembers the loaded window", async () => {
+    expect(await refreshContextWindow("lmstudio::qwen-local", {}, lmStudio(8192))).toBe(8192);
+    expect(knownContextWindow("lmstudio::qwen-local")).toBe(8192);
+    expect(await refreshContextWindow("lmstudio::qwen-local", {}, lmStudio(65536))).toBe(65536);
+  });
+
+  it("keeps the last known window when the host does not answer", async () => {
+    await refreshContextWindow("lmstudio::qwen-local", {}, lmStudio(32768));
+    const down = (async () => { throw new Error("offline"); }) as unknown as typeof fetch;
+    expect(await refreshContextWindow("lmstudio::qwen-local", {}, down)).toBe(32768);
+  });
+
+  it("does nothing for a cloud model", async () => {
+    const never = (async () => { throw new Error("must not fetch"); }) as unknown as typeof fetch;
+    expect(await refreshContextWindow("claude-sonnet-5", {}, never)).toBeUndefined();
+  });
+});
+
 describe("ensureOpenCodeInjectModel", () => {
+  it("sizes OpenCode's limit to the loaded window so it compacts in time", async () => {
+    const home = mkdtempSync(join(tmpdir(), "omb-opencode-limit-"));
+    scratchDirs.push(home);
+    const fetchWindow = (n: number) => (async () => new Response(JSON.stringify({
+      data: [{ id: "qwen-limit", state: "loaded", loaded_context_length: n }],
+    }))) as unknown as typeof fetch;
+    const read = () => (JSON.parse(readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf8")) as {
+      provider: { lmstudio: { models: Record<string, { name: string; limit?: { context: number; output: number } }> } };
+    }).provider.lmstudio.models["qwen-limit"];
+
+    await refreshContextWindow("lmstudio::qwen-limit", {}, fetchWindow(32768));
+    ensureOpenCodeInjectModel("lmstudio::qwen-limit", { HOME: home });
+    expect(read()).toMatchObject({ limit: { context: 32768, output: 8192 } });
+
+    await refreshContextWindow("lmstudio::qwen-limit", {}, fetchWindow(8192));
+    ensureOpenCodeInjectModel("lmstudio::qwen-limit", { HOME: home });
+    expect(read()).toMatchObject({ limit: { context: 8192, output: 2048 } });
+  });
+
+  it("writes no limit when the window is unknown", () => {
+    const home = mkdtempSync(join(tmpdir(), "omb-opencode-nolimit-"));
+    scratchDirs.push(home);
+    ensureOpenCodeInjectModel("omlx::unknown-window", { HOME: home });
+    const config = JSON.parse(readFileSync(join(home, ".config", "opencode", "opencode.json"), "utf8")) as {
+      provider: { omlx: { models: Record<string, Record<string, unknown>> } };
+    };
+    expect(config.provider.omlx.models["unknown-window"]).not.toHaveProperty("limit");
+  });
+
   it("merges a host provider into opencode.json without dropping existing models", () => {
     const home = mkdtempSync(join(tmpdir(), "omb-opencode-inject-"));
     scratchDirs.push(home);

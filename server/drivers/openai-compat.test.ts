@@ -99,6 +99,37 @@ describe("OpenAICompatDriver", () => {
     await inst.dispose();
   });
 
+  it("reads each model's loaded window from an LM Studio endpoint, even on another machine", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "http://100.64.0.5:1234/api/v0/models") {
+        return new Response(JSON.stringify({ data: [{ id: "qwen3.6-35b-a3b", state: "loaded", max_context_length: 262144, loaded_context_length: 32768 }] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ data: [{ id: "qwen3.6-35b-a3b" }, { id: "other-model" }] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const inst = await OpenAICompatDriver.create({
+      instanceId: "mini", displayName: "Mac mini", enabled: true,
+      config: OpenAICompatDriver.decodeConfig({ url: "http://100.64.0.5:1234/v1", apiKeyEnv: "OPENAI_COMPAT_API_KEY" }),
+      environment: { OPENAI_COMPAT_API_KEY: "lm-studio" },
+    });
+    await vi.waitFor(() => expect(inst.models.options.find((option) => option.id === "qwen3.6-35b-a3b")?.contextWindow).toBe(32768));
+    expect(inst.models.options.find((option) => option.id === "other-model")).not.toHaveProperty("contextWindow");
+    await inst.dispose();
+  });
+
+  it("keeps a listed window and asks no runner when the endpoint is OpenRouter", async () => {
+    const fetchMock = vi.fn(async (_url: string) => new Response(JSON.stringify({ data: [{ id: "qwen/qwen3.6", context_length: 262144 }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const inst = await OpenAICompatDriver.create({
+      instanceId: "router", displayName: "Router", enabled: true,
+      config: OpenAICompatDriver.decodeConfig({ url: "https://openrouter.ai/api/v1", apiKeyEnv: "OPENAI_COMPAT_API_KEY" }),
+      environment: { OPENAI_COMPAT_API_KEY: "sk-fixture" },
+    });
+    await vi.waitFor(() => expect(inst.models.options.find((option) => option.id === "qwen/qwen3.6")?.contextWindow).toBe(262144));
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/v0/models"))).toBe(false);
+    await inst.dispose();
+  });
+
   it("reports unavailable without an API key", async () => {
     const inst = await OpenAICompatDriver.create({
       instanceId: "test-1",

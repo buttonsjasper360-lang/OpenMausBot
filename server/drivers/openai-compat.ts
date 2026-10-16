@@ -1,6 +1,7 @@
 // Transcript-replay driver for OpenRouter, Groq, Together, llama.cpp, and
 // other endpoints that speak the OpenAI chat-completions contract.
 import type { ModelCatalog, ProviderDriver } from "../contracts.ts";
+import { contextWindowsFromPs } from "./local-inject.ts";
 import { createOpenAIChatRuntime } from "./openai-chat.ts";
 
 const DRIVER_KIND = "openai-compat";
@@ -36,6 +37,23 @@ const OPENAI_MODELS: ModelCatalog = {
 export function isOpenAIChatModel(id: string): boolean {
   if (!/^(gpt-|chatgpt-|o\d)/i.test(id)) return false;
   return !/(audio|realtime|tts|transcribe|search|image|embedding|moderation|instruct|codex|computer-use|deep-research|-pro\b)/i.test(id);
+}
+
+/** An OpenAI-compatible endpoint that is LM Studio (on this machine or another, e.g. over Tailscale)
+ * also answers /api/v0/models with each loaded model's window. Other endpoints answer 404 or not at all,
+ * which leaves the catalog as it was. */
+export async function loadedContextWindows(url: string, apiKey: string, fetchImpl: typeof fetch = fetch): Promise<Map<string, number>> {
+  try {
+    const origin = url.replace(/\/+$/, "").replace(/\/v1$/, "");
+    const response = await fetchImpl(`${origin}/api/v0/models`, {
+      headers: { authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (!response.ok) return new Map();
+    return contextWindowsFromPs(await response.json());
+  } catch {
+    return new Map();
+  }
 }
 
 export interface OpenAICompatConfig {
@@ -136,7 +154,7 @@ export const OpenAICompatDriver: ProviderDriver<OpenAICompatConfig> = {
           signal: AbortSignal.timeout(8_000),
         });
         if (!response.ok) return;
-        type Row = { id?: unknown; name?: unknown; created?: unknown };
+        type Row = { id?: unknown; name?: unknown; created?: unknown; context_length?: unknown };
         const json = await response.json() as { data?: Row[] } | Row[];
         let rows = Array.isArray(json) ? json : Array.isArray(json.data) ? json.data : [];
         // OpenAI lists its catalog unordered and mixed with non-chat models.
@@ -145,16 +163,21 @@ export const OpenAICompatDriver: ProviderDriver<OpenAICompatConfig> = {
             .filter((row) => typeof row.id === "string" && isOpenAIChatModel(row.id))
             .sort((a, b) => (typeof b.created === "number" ? b.created : 0) - (typeof a.created === "number" ? a.created : 0));
         }
+        const loadedWindows = config.catalog === "openai" || isOpenRouterUrl(config.url) ? new Map<string, number>() : await loadedContextWindows(config.url, apiKey);
         const seen = new Set<string>();
         const options: ModelCatalog["options"] = [];
         for (const row of rows) {
           const id = typeof row.id === "string" ? row.id : "";
           if (!id || seen.has(id)) continue;
           seen.add(id);
+          // A local runner's loaded window beats a listed one: OpenRouter lists each model's full window.
+          const listed = typeof row.context_length === "number" && Number.isFinite(row.context_length) && row.context_length > 0 ? row.context_length : undefined;
+          const contextWindow = loadedWindows.get(id) ?? listed;
           options.push({
             id,
             label: typeof row.name === "string" && row.name.trim() ? row.name : id,
             ...(config.catalog === "openai" ? {} : { custom: true }),
+            ...(contextWindow ? { contextWindow } : {}),
           });
         }
         if (!options.length) return;

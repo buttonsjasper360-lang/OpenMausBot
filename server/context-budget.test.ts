@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { compactBudget, compactionReading, contextWindowFor, shouldCompact, DEFAULT_CONTEXT_WINDOW } from "./context-budget.ts";
+import { refreshContextWindow } from "./drivers/local-inject.ts";
 
 it("keeps compaction reachable below small model windows", () => {
   expect(compactBudget(8_000)).toBe(6_400);
@@ -45,4 +46,15 @@ it("times compaction from a driver's reading unless the driver reports it for th
   expect(window).toBe(DEFAULT_CONTEXT_WINDOW);
   expect(shouldCompact({ contextTokens: compactionReading({ contextReading: "meter" }, reading)?.tokens, estimatedBytes: 4_000,
     budget: compactBudget(window), window })).toBe(false);
+});
+
+it("sizes a local model's compaction to the window its host reports loaded, not the 128k fallback", async () => {
+  const model = "lmstudio::qwen-budget";
+  expect(contextWindowFor(model)).toBe(DEFAULT_CONTEXT_WINDOW);
+  const lmStudio = (async () => new Response(JSON.stringify({
+    data: [{ id: "qwen-budget", state: "loaded", max_context_length: 262144, loaded_context_length: 32768 }],
+  }))) as unknown as typeof fetch;
+  await refreshContextWindow(model, {}, lmStudio);
+  expect(contextWindowFor(model, { default: model, options: [{ id: model, label: model, contextWindow: 131072 }] })).toBe(32768);
+  expect(contextWindowFor(model, undefined, 16384)).toBe(16384);
 });
