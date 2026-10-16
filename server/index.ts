@@ -13231,6 +13231,7 @@ function configStatus() {
       roomMemoryCapture: roomMemoryCaptureEnabled(cfg),
       parallelRoomJobs: parallelRoomJobsEnabled(cfg),
       llmThreadTitles: llmThreadTitlesEnabled(cfg),
+      agentsToolBridge: cfg.features?.agentsToolBridge === true,
     },
     onboarding: {
       completedAt: cfg.onboarding?.completedAt ?? "",
